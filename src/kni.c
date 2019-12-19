@@ -53,7 +53,12 @@ static void kni_fill_conf(const struct netif_port *dev, const char *ifname,
 
     memset(conf, 0, sizeof(*conf));
     conf->group_id = dev->id;
-    conf->mbuf_size = KNI_DEF_MBUF_SIZE;
+    rte_eth_dev_get_mtu(dev->id, &conf->mbuf_size);
+    if (!conf->mbuf_size)
+        conf->mbuf_size = KNI_DEF_MBUF_SIZE;
+    else
+        conf->mbuf_size += ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN;
+    /* mbuf_size should have enough space to store full frame */
 
     if (dev->type == PORT_TYPE_GENERAL) { /* dpdk phy device */
         rte_eth_dev_info_get(dev->id, &info);
@@ -323,10 +328,10 @@ kni_change_mtu(uint16_t port_id, unsigned int new_mtu)
         return -EINVAL;
     }
     RTE_LOG(INFO, Kni, "Change MTU of port %d to %u\n", port_id, new_mtu);
-    
+
     rte_eth_dev_get_mtu(port_id, &mtu);
     if (new_mtu > mtu) {
-        RTE_LOG(ERR, Kni, "Cannot set MTU bigger than DPDK interface MTU on port %d\n", 
+        RTE_LOG(ERR, Kni, "Cannot set MTU bigger than DPDK interface MTU on port %d\n",
                 port_id);
         return -EINVAL;
     }
@@ -353,7 +358,7 @@ kni_config_network_interface(uint16_t port_id, uint8_t if_up)
 int kni_add_dev(struct netif_port *dev, const char *kniname)
 {
     struct rte_kni_conf conf;
-    struct rte_kni_ops ops;
+    struct rte_kni_ops ops = {};
     struct rte_kni *kni;
     int err;
 
@@ -395,15 +400,6 @@ int kni_add_dev(struct netif_port *dev, const char *kniname)
         ether_format_addr(mac, sizeof(mac), &dev->addr);
         RTE_LOG(WARNING, Kni, "%s: fail to set mac %s for %s: %s\n",
                 __func__, mac, conf.name, strerror(errno));
-    }
-
-    /*
-     * kni device should use same MTU as real device,
-     */
-    err = linux_set_if_mtu(conf.name, (const int)dev->mtu);
-    if (err != EDPVS_OK) {
-        RTE_LOG(WARNING, Kni, "%s: fail to set MTU %d for %s: %s\n",
-                __func__, dev->mtu, conf.name, strerror(errno));
     }
 
     snprintf(dev->kni.name, sizeof(dev->kni.name), "%s", conf.name);
