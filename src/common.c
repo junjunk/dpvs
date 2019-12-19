@@ -131,6 +131,30 @@ bool is_power2(int num, int offset, int *lower)
     return ret;
 }
 
+int linux_set_if_mtu(const char *ifname, const int mtu)
+{
+    int sock_fd;
+    struct ifreq ifr = {};
+
+    if (!ifname || !mtu || !strncmp(ifname, "lo", 2))
+        return EDPVS_INVAL;
+
+    sock_fd = socket(PF_INET, SOCK_DGRAM, 0);
+    if (sock_fd < 0)
+        return EDPVS_SYSCALL;
+
+    snprintf(ifr.ifr_name, sizeof(ifr.ifr_name), "%s", ifname);
+    ifr.ifr_mtu = mtu;
+
+    if (ioctl(sock_fd, SIOCSIFMTU, &ifr)) {
+        close(sock_fd);
+        return EDPVS_SYSCALL;
+    }
+
+    close(sock_fd);
+    return EDPVS_OK;
+}
+
 int linux_set_if_mac(const char *ifname, const unsigned char mac[ETH_ALEN])
 {
     int sock_fd;

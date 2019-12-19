@@ -360,6 +360,15 @@ int kni_add_dev(struct netif_port *dev, const char *kniname)
                 __func__, mac, conf.name, strerror(errno));
     }
 
+    /*
+     * kni device should use same MTU as real device,
+     */
+    err = linux_set_if_mtu(conf.name, (const int)dev->mtu);
+    if (err != EDPVS_OK) {
+        RTE_LOG(WARNING, Kni, "%s: fail to set MTU %d for %s: %s\n",
+                __func__, dev->mtu, conf.name, strerror(errno));
+    }
+
     snprintf(dev->kni.name, sizeof(dev->kni.name), "%s", conf.name);
     dev->kni.addr = dev->addr;
     dev->kni.kni = kni;
