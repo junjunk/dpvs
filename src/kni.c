@@ -312,6 +312,40 @@ errout:
     return err;
 }
 
+
+/* Callback for request of changing MTU */
+static int
+kni_change_mtu(uint16_t port_id, unsigned int new_mtu)
+{
+    uint16_t mtu;
+    if (port_id >= rte_eth_dev_count()) {
+        RTE_LOG(ERR, Kni, "Invalid port id %d\n", port_id);
+        return -EINVAL;
+    }
+    RTE_LOG(INFO, Kni, "Change MTU of port %d to %u\n", port_id, new_mtu);
+    
+    rte_eth_dev_get_mtu(port_id, &mtu);
+    if (new_mtu > mtu) {
+        RTE_LOG(ERR, Kni, "Cannot set MTU bigger than DPDK interface MTU on port %d\n", 
+                port_id);
+        return -EINVAL;
+    }
+    return 0;
+}
+/* Callback for request of configuring network interface up/down */
+static int
+kni_config_network_interface(uint16_t port_id, uint8_t if_up)
+{
+    int ret = 0;
+    if (port_id >= rte_eth_dev_count() || port_id >= RTE_MAX_ETHPORTS) {
+        RTE_LOG(ERR, Kni, "Invalid port id %d\n", port_id);
+        return -EINVAL;
+    }
+    RTE_LOG(INFO, Kni, "Configure network interface of %d %s\n",
+                    port_id, if_up ? "up" : "down");
+    return ret;
+}
+
 /*
  * @dev     - real device kni attach to.
  * @kniname - optional, kni device name or auto generate.
@@ -319,6 +353,7 @@ errout:
 int kni_add_dev(struct netif_port *dev, const char *kniname)
 {
     struct rte_kni_conf conf;
+    struct rte_kni_ops ops;
     struct rte_kni *kni;
     int err;
 
@@ -335,8 +370,10 @@ int kni_add_dev(struct netif_port *dev, const char *kniname)
     }
 
     kni_fill_conf(dev, kniname, &conf);
-
-    kni = rte_kni_alloc(kni_mbuf_pool[dev->socket], &conf, NULL);
+    ops.port_id = conf.group_id;
+    ops.change_mtu = kni_change_mtu;
+    ops.config_network_if = kni_config_network_interface;
+    kni = rte_kni_alloc(kni_mbuf_pool[dev->socket], &conf, &ops);
     if (!kni)
         return EDPVS_DPDKAPIFAIL;
 
