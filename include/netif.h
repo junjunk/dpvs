@@ -64,6 +64,10 @@ enum {
 
 #define NETIF_LCORE_ID_INVALID      0xFF
 
+/* Total octets in ethernet header */
+#define KNI_ENET_HEADER_SIZE    14
+/* Total octets in the FCS */
+#define KNI_ENET_FCS_SIZE       4
 /************************* lcore conf  ***************************/
 struct rx_partner;
 

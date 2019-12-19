@@ -3372,6 +3372,14 @@ static void fill_port_config(struct netif_port *port, char *promisc_on)
 
         if (cfg_stream->mtu) {
             port->mtu = cfg_stream->mtu;
+                /* Set new MTU */
+            if (port->mtu > ETHER_MAX_LEN)
+                port->dev_conf.rxmode.jumbo_frame = 1;
+            else
+                port->dev_conf.rxmode.jumbo_frame = 0;
+            /* mtu + length of header + length of FCS = max pkt length */
+            port->dev_conf.rxmode.max_rx_pkt_len = port->mtu + KNI_ENET_HEADER_SIZE +
+                                    KNI_ENET_FCS_SIZE;
         }
     } else {
         /* using default configurations */
