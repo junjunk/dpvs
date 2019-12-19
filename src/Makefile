@@ -48,6 +48,7 @@ ifeq ($(shell test $(GCC_VERSION) -ge 70 && echo 1), 1)
 	CFLAGS += -Wno-format-truncation
 	CFLAGS += -Wno-stringop-truncation
 	CFLAGS += -Wstringop-overflow=0
+	CFLAGS += -fgnu89-inline
 endif
 
 ifeq ($(DEBUG),)
