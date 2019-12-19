@@ -93,6 +93,8 @@ struct port_conf_stream {
     int tx_queue_nb;
     int tx_desc_nb;
 
+    uint16_t mtu;
+
     enum rte_fdir_mode fdir_mode;
     enum rte_fdir_pballoc_type fdir_pballoc;
     enum rte_fdir_status_mode fdir_status;
@@ -475,6 +477,25 @@ static void fdir_status_handler(vector_t tokens)
     FREE_PTR(str);
 }
 
+static void mtu_handler(vector_t tokens)
+{
+    char *str = set_value(tokens);
+    struct port_conf_stream *current_device = list_entry(port_list.next,
+            struct port_conf_stream, port_list_node);
+    assert(str);
+
+    current_device->mtu = atoi(str);
+
+    if (!current_device->mtu)
+        RTE_LOG(WARNING, NETIF, "invalid %s:mtu '%s', "
+                "use default\n", current_device->name, str);
+    else
+        RTE_LOG(INFO, NETIF, "%s:mtu = %d\n",
+                current_device->name, current_device->mtu);
+
+    FREE_PTR(str);
+}
+
 static void promisc_mode_handler(vector_t tokens)
 {
     struct port_conf_stream *current_device = list_entry(port_list.next,
@@ -846,6 +867,7 @@ void install_netif_keywords(void)
     install_keyword("pballoc", fdir_pballoc_handler, KW_TYPE_INIT);
     install_keyword("status", fdir_status_handler, KW_TYPE_INIT);
     install_sublevel_end();
+    install_keyword("mtu", mtu_handler, KW_TYPE_INIT);
     install_keyword("promisc_mode", promisc_mode_handler, KW_TYPE_INIT);
     install_keyword("kni_name", kni_name_handler, KW_TYPE_INIT);
     install_sublevel_end();
@@ -3288,7 +3310,7 @@ static int rss_resolve_proc(char *rss)
     return rss_value;
 }
 
-/* fill in rx/tx queue configurations, including queue number,
+/* fill in rx/tx queue configurations, including queue number, mtu,
  * decriptor number, bonding device's rss */
 static void fill_port_config(struct netif_port *port, char *promisc_on)
 {
@@ -3347,6 +3369,10 @@ static void fill_port_config(struct netif_port *port, char *promisc_on)
         }
         port->rxq_desc_nb = cfg_stream->rx_desc_nb;
         port->txq_desc_nb = cfg_stream->tx_desc_nb;
+
+        if (cfg_stream->mtu) {
+            port->mtu = cfg_stream->mtu;
+        }
     } else {
         /* using default configurations */
         port->rxq_desc_nb = NETIF_NB_RX_DESC_DEF;
@@ -3494,6 +3520,15 @@ int netif_port_start(struct netif_port *port)
                         __func__, port->name, qid);
                 return EDPVS_DPDKAPIFAIL;
             }
+        }
+    }
+    
+    // setup mtu
+    if (port->mtu) {
+        ret = rte_eth_dev_set_mtu(port->id, port->mtu);
+        if (ret < 0) {
+            RTE_LOG(ERR, NETIF, "%s: fail to config %s: mtu %d\n",
+                    __func__, port->name, port->mtu);
         }
     }
 
