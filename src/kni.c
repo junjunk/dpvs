@@ -36,6 +36,7 @@
 #include "netif.h"
 #include "netif_addr.h"
 #include "kni.h"
+#include "vlan.h"
 
 #define Kni /* KNI is defined */
 #define RTE_LOGTYPE_Kni     RTE_LOGTYPE_USER1
@@ -50,14 +51,15 @@ static void kni_fill_conf(const struct netif_port *dev, const char *ifname,
                           struct rte_kni_conf *conf)
 {
     struct rte_eth_dev_info info = {0};
-
+    uint16_t mtu = 0;
     memset(conf, 0, sizeof(*conf));
     conf->group_id = dev->id;
-    rte_eth_dev_get_mtu(dev->id, &conf->mbuf_size);
-    if (!conf->mbuf_size)
+    rte_eth_dev_get_mtu(dev->id, &mtu);
+
+    if (!mtu)
         conf->mbuf_size = KNI_DEF_MBUF_SIZE;
     else
-        conf->mbuf_size += ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN;
+        conf->mbuf_size = mtu + ETH_HLEN + ETH_FCS_LEN + VLAN_HLEN;
     /* mbuf_size should have enough space to store full frame */
 
     if (dev->type == PORT_TYPE_GENERAL) { /* dpdk phy device */
