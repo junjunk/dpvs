@@ -2177,18 +2177,45 @@ errout:
     return err;
 }
 
+static void __dp_vs_prepare_tunnel6_mbuf(struct rte_mbuf *mbuf, 
+                    int svc_af, __u8 *next_protocol,
+			        __u32 *payload_len, __u8 *ttl)
+{
+    struct ipv4_hdr *old_ip4h = NULL;
+    struct ip6_hdr *old_ip6h = NULL;
+
+    if (svc_af == AF_INET6) {
+        old_ip6h = ip6_hdr(mbuf);
+        *next_protocol = IPPROTO_IPV6;
+        *ttl = old_ip6h->ip6_hlim;
+    } else if (svc_af == AF_INET) {
+        old_ip4h = ip4_hdr(mbuf);
+        *next_protocol = IPPROTO_IPIP;
+        *ttl = old_ip4h->time_to_live;
+        //we should recalculate internal ip checksum
+        ip4_send_csum(old_ip4h);
+    }
+    *payload_len = htons(mbuf->pkt_len);
+}
+
 /*
  * IPv6-IPv6 tunnel is used for IPv6 IPVS tunnel forwarding.
  * `ip6tnl0` should be configured up on RS.
+ * For IPv4-in-IPv6 `ip6tbl0` should be configured as any/ipv6
+ * tunnel.
  * */
 static int __dp_vs_xmit_tunnel6(struct dp_vs_proto *proto,
                    struct dp_vs_conn *conn,
-                   struct rte_mbuf *mbuf)
+                   struct rte_mbuf *mbuf,
+                   int svc_af)
 {
     struct flow6 fl6;
-    struct ip6_hdr *new_ip6h, *old_ip6h = ip6_hdr(mbuf);
+    struct ip6_hdr *new_ip6h;
     struct route6 *rt6;
     int err, mtu;
+	__u8 next_protocol = 0;
+	__u32 payload_len = 0;
+	__u8 ttl = 0;
 
     /*
      * drop old route. just for safe, because
@@ -2213,6 +2240,9 @@ static int __dp_vs_xmit_tunnel6(struct dp_vs_proto *proto,
     mtu = rt6->rt6_mtu;
     mbuf->userdata = rt6;
 
+    __dp_vs_prepare_tunnel6_mbuf(mbuf, svc_af, &next_protocol, &payload_len,
+					 &ttl);
+
     new_ip6h = (struct ip6_hdr*)rte_pktmbuf_prepend(mbuf, sizeof(struct ip6_hdr));
     if (!new_ip6h) {
         RTE_LOG(WARNING, IPVS, "%s: mbuf has not enough headroom"
@@ -2229,10 +2259,12 @@ static int __dp_vs_xmit_tunnel6(struct dp_vs_proto *proto,
     }
 
     memset(new_ip6h, 0, sizeof(struct ip6_hdr));
-    new_ip6h->ip6_flow = old_ip6h->ip6_flow;
-    new_ip6h->ip6_plen = htons(mbuf->pkt_len - sizeof(struct ip6_hdr));
-    new_ip6h->ip6_nxt = IPPROTO_IPV6;
-    new_ip6h->ip6_hops = old_ip6h->ip6_hops;
+    new_ip6h->ip6_vfc    = 0x60;
+    new_ip6h->ip6_flow  |= htonl(((uint64_t)fl6.fl6_tos<<20) | \
+                            (ntohl(fl6.fl6_flow)&0xfffffUL));
+    new_ip6h->ip6_plen = payload_len;
+    new_ip6h->ip6_nxt = next_protocol;
+    new_ip6h->ip6_hops = ttl;
 
     new_ip6h->ip6_src = rt6->rt6_src.addr;
     if (unlikely(ipv6_addr_any(&new_ip6h->ip6_src))) {
@@ -2347,17 +2379,18 @@ int dp_vs_xmit_tunnel(struct dp_vs_proto *proto,
      * But on RealServers, corresponding tunnel device should be configured up. For Linux,
      * the following configs may be made:
      * 1. ifconfig tunl0/ip6tnl0/sit0 up for ip-ip/ip6-ip6/ip6-over-ip4 tunnel respectively
+     * 1a. configure ip6tnl0 mode any/ipv6 for ip4-ip6 tunnel
      * 2. add vip onto the configured tunnel device, then ignore arp for it
      * 3. set proper rp_filter mode for the tunnel device
      */
 
+    /* ip6-ip6 or ip4-ip6 tunnel */
+    if (AF_INET6 == oaf)
+        return __dp_vs_xmit_tunnel6(proto, conn, mbuf, iaf);
+
     /* ip-ip tunnel */
     if (AF_INET == iaf)
         return __dp_vs_xmit_tunnel4(proto, conn, mbuf);
-
-    /* ip6-ip6 tunnel */
-    if (AF_INET6 == oaf)
-        return __dp_vs_xmit_tunnel6(proto, conn, mbuf);
 
     /* ip6-over-ip4 tunnel */
     return __dp_vs_xmit_tunnel_6o4(proto, conn, mbuf);
